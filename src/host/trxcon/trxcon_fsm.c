@@ -27,6 +27,7 @@
 
 #include <logging.h>
 #include <trxcon.h>
+#include <l1ctl.h>
 
 static void trxcon_fsm_idle_action(struct osmo_fsm_inst *fi,
 	uint32_t event, void *data)
@@ -44,6 +45,8 @@ static void trxcon_fsm_idle_action(struct osmo_fsm_inst *fi,
 static void trxcon_fsm_managed_action(struct osmo_fsm_inst *fi,
 	uint32_t event, void *data)
 {
+	struct trxcon_inst *trxcon = (struct trxcon_inst *) fi->priv;
+
 	switch ((enum trxcon_event_type) event) {
 	case TRXCON_EV_L1CTL_DISCONNECT:
 		/* TODO: reset TRX interface */
@@ -52,6 +55,10 @@ static void trxcon_fsm_managed_action(struct osmo_fsm_inst *fi,
 	case TRXCON_EV_TRX_DISCONNECT:
 		/* TODO: notify L1CTL interface */
 		osmo_fsm_inst_state_chg(fi, TRXCON_ST_IDLE, 0, 0);
+		break;
+	case TRXCON_EV_L1CTL_REQ:
+		OSMO_ASSERT(data != NULL);
+		l1ctl_rx_cb(trxcon->l1l, (struct msgb *) data);
 		break;
 	default:
 		LOGPFSML(fi, LOGL_ERROR, "Unhandled event '%s'\n",

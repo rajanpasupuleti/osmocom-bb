@@ -113,8 +113,13 @@ static int l1ctl_link_read_cb(struct osmo_fd *bfd)
 	LOGP(DL1D, LOGL_DEBUG, "RX: '%s'\n",
 		osmo_hexdump(msg->data, msg->len));
 
-	/* Call L1CTL handler */
-	l1ctl_rx_cb(l1l, msg);
+	/* Pass a message to the parent FSM */
+	rc = osmo_fsm_inst_dispatch(l1l->fsm->proc.parent,
+		TRXCON_EV_L1CTL_REQ, msg);
+	if (rc) {
+		msgb_free(msg);
+		return rc;
+	}
 
 	return 0;
 }
