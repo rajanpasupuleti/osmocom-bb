@@ -63,11 +63,9 @@ static struct {
 	int quit;
 
 	/* L1CTL specific */
-	struct l1ctl_link *l1l;
 	const char *bind_socket;
 
 	/* TRX specific */
-	struct trx_instance *trx;
 	const char *trx_bind_ip;
 	const char *trx_remote_ip;
 	uint16_t trx_base_port;
@@ -184,7 +182,7 @@ static void signal_handler(int signal)
 
 int main(int argc, char **argv)
 {
-	struct osmo_fsm_inst *trxcon_fsm;
+	struct trxcon_inst *trxcon = NULL;
 	int rc = 0;
 
 	printf("%s", COPYRIGHT);
@@ -207,31 +205,41 @@ int main(int argc, char **argv)
 	/* Init logging system */
 	trx_log_init(tall_trxcon_ctx, app_data.debug_mask);
 
-	/* Allocate a trxcon state machine */
-	trxcon_fsm = osmo_fsm_inst_alloc(&trxcon_fsm_def,
-		tall_trxcon_ctx, NULL, LOGL_DEBUG, "main");
-	if (trxcon_fsm == NULL)
+	/* Allocate a single trxcon instance */
+	trxcon = talloc_zero(tall_trxcon_ctx, struct trxcon_inst);
+	if (trxcon == NULL) {
+		LOGP(DAPP, LOGL_ERROR, "Failed to allocate a trxcon instance\n");
 		goto exit;
+	}
+
+	/* Allocate an associated trxcon state machine */
+	trxcon->fi = osmo_fsm_inst_alloc(&trxcon_fsm_def,
+		tall_trxcon_ctx, trxcon, LOGL_DEBUG, "main");
+	if (trxcon->fi == NULL) {
+		LOGP(DAPP, LOGL_ERROR, "Failed to allocate trxcon FSM\n");
+		goto exit;
+	}
 
 	/* Init L1CTL server */
-	app_data.l1l = l1ctl_link_init(trxcon_fsm,
+	trxcon->l1l = l1ctl_link_init(trxcon->fi,
 		app_data.bind_socket);
-	if (app_data.l1l == NULL)
+	if (trxcon->l1l == NULL)
 		goto exit;
 
 	/* Init transceiver interface */
-	app_data.trx = trx_if_open(trxcon_fsm,
+	trxcon->trx = trx_if_open(trxcon->fi,
 		app_data.trx_bind_ip, app_data.trx_remote_ip,
 		app_data.trx_base_port);
-	if (!app_data.trx)
+	if (trxcon->trx == NULL)
 		goto exit;
 
-	/* Bind L1CTL with TRX and vice versa */
-	app_data.l1l->trx = app_data.trx;
-	app_data.trx->l1l = app_data.l1l;
+	/* Bind L1CTL with TRX and vice versa
+	 * TODO: get rid of this, they should be abstracted */
+	trxcon->l1l->trx = trxcon->trx;
+	trxcon->trx->l1l = trxcon->l1l;
 
 	/* Init scheduler */
-	rc = sched_trx_init(app_data.trx, app_data.trx_fn_advance);
+	rc = sched_trx_init(trxcon->trx, app_data.trx_fn_advance);
 	if (rc)
 		goto exit;
 
@@ -252,14 +260,21 @@ int main(int argc, char **argv)
 		osmo_select_main(0);
 
 exit:
-	/* Close active connections */
-	l1ctl_link_shutdown(app_data.l1l);
-	sched_trx_shutdown(app_data.trx);
-	trx_if_close(app_data.trx);
+	if (trxcon != NULL) {
+		/* Shutdown scheduler */
+		sched_trx_shutdown(trxcon->trx);
 
-	/* Shutdown main state machine */
-	if (trxcon_fsm != NULL)
-		osmo_fsm_inst_free(trxcon_fsm);
+		/* Close active connections */
+		l1ctl_link_shutdown(trxcon->l1l);
+		trx_if_close(trxcon->trx);
+
+		/* Shutdown main state machine */
+		if (trxcon->fi != NULL)
+			osmo_fsm_inst_free(trxcon->fi);
+
+		/* Release trxcon instance */
+		talloc_free(trxcon);
+	}
 
 	/* Deinitialize logging */
 	log_fini();

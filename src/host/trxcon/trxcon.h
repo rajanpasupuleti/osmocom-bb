@@ -32,3 +32,14 @@ enum trxcon_event_type {
 	TRXCON_EV_SCHED_DL_TF_IND,	/*!< DL Traffic Frame INDication */
 	TRXCON_EV_SCHED_UL_TF_CONF,	/*!< UL Traffic Frame CONFirmation */
 };
+
+/* Represents a single L1CTL <-> TRX connection */
+struct trxcon_inst {
+	/* Associated instance of trxcon_fsm */
+	struct osmo_fsm_inst *fi;
+
+	/* Connection with transceiver */
+	struct trx_instance *trx;
+	/* L1CTL server */
+	struct l1ctl_link *l1l;
+};
