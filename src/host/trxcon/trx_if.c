@@ -173,7 +173,7 @@ static void trx_ctrl_timer_cb(void *data)
 	if (++tcm->retry_cnt > 3) {
 		LOGP(DTRX, LOGL_NOTICE, "Transceiver offline\n");
 		osmo_fsm_inst_state_chg(trx->fsm, TRX_STATE_OFFLINE, 0, 0);
-		osmo_fsm_inst_dispatch(trxcon_fsm, TRX_EVENT_OFFLINE, trx);
+		osmo_fsm_inst_dispatch(trxcon_fsm, TRXCON_EV_TRX_DISCONNECT, NULL);
 		return;
 	}
 
@@ -514,7 +514,7 @@ static int trx_ctrl_read_cb(struct osmo_fd *ofd, unsigned int what)
 
 rsp_error:
 	/* Notify higher layers about the problem */
-	osmo_fsm_inst_dispatch(trxcon_fsm, TRX_EVENT_RSP_ERROR, trx);
+	osmo_fsm_inst_dispatch(trxcon_fsm, TRXCON_EV_TRX_CTRL_ERROR, NULL);
 	return -EIO;
 }
 

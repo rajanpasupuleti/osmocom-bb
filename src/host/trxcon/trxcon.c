@@ -1,7 +1,7 @@
 /*
  * OsmocomBB <-> SDR connection bridge
  *
- * (C) 2016-2017 by Vadim Yanitskiy <axilirator@gmail.com>
+ * (C) 2016-2019 by Vadim Yanitskiy <axilirator@gmail.com>
  *
  * All Rights Reserved
  *
@@ -76,72 +76,6 @@ static struct {
 
 static void *tall_trxcon_ctx = NULL;
 struct osmo_fsm_inst *trxcon_fsm;
-
-static void trxcon_fsm_idle_action(struct osmo_fsm_inst *fi,
-	uint32_t event, void *data)
-{
-	if (event == L1CTL_EVENT_CONNECT)
-		osmo_fsm_inst_state_chg(trxcon_fsm, TRXCON_STATE_MANAGED, 0, 0);
-}
-
-static void trxcon_fsm_managed_action(struct osmo_fsm_inst *fi,
-	uint32_t event, void *data)
-{
-	switch (event) {
-	case L1CTL_EVENT_DISCONNECT:
-		osmo_fsm_inst_state_chg(trxcon_fsm, TRXCON_STATE_IDLE, 0, 0);
-
-		if (app_data.trx->fsm->state != TRX_STATE_OFFLINE) {
-			/* Reset scheduler and clock counter */
-			sched_trx_reset(app_data.trx, true);
-
-			/* TODO: implement trx_if_reset() */
-			trx_if_cmd_poweroff(app_data.trx);
-			trx_if_cmd_echo(app_data.trx);
-		}
-		break;
-	case TRX_EVENT_RSP_ERROR:
-	case TRX_EVENT_OFFLINE:
-		/* TODO: notify L2 & L3 about that */
-		break;
-	default:
-		LOGPFSML(fi, LOGL_ERROR, "Unhandled event %u\n", event);
-	}
-}
-
-static struct osmo_fsm_state trxcon_fsm_states[] = {
-	[TRXCON_STATE_IDLE] = {
-		.in_event_mask = GEN_MASK(L1CTL_EVENT_CONNECT),
-		.out_state_mask = GEN_MASK(TRXCON_STATE_MANAGED),
-		.name = "IDLE",
-		.action = trxcon_fsm_idle_action,
-	},
-	[TRXCON_STATE_MANAGED] = {
-		.in_event_mask = (
-			GEN_MASK(L1CTL_EVENT_DISCONNECT) |
-			GEN_MASK(TRX_EVENT_RSP_ERROR) |
-			GEN_MASK(TRX_EVENT_OFFLINE)),
-		.out_state_mask = GEN_MASK(TRXCON_STATE_IDLE),
-		.name = "MANAGED",
-		.action = trxcon_fsm_managed_action,
-	},
-};
-
-static const struct value_string app_evt_names[] = {
-	OSMO_VALUE_STRING(L1CTL_EVENT_CONNECT),
-	OSMO_VALUE_STRING(L1CTL_EVENT_DISCONNECT),
-	OSMO_VALUE_STRING(TRX_EVENT_OFFLINE),
-	OSMO_VALUE_STRING(TRX_EVENT_RSP_ERROR),
-	{ 0, NULL }
-};
-
-static struct osmo_fsm trxcon_fsm_def = {
-	.name = "trxcon_app_fsm",
-	.states = trxcon_fsm_states,
-	.num_states = ARRAY_SIZE(trxcon_fsm_states),
-	.log_subsys = DAPP,
-	.event_names = app_evt_names,
-};
 
 static void print_usage(const char *app)
 {
@@ -273,10 +207,11 @@ int main(int argc, char **argv)
 	/* Init logging system */
 	trx_log_init(tall_trxcon_ctx, app_data.debug_mask);
 
-	/* Allocate the application state machine */
-	osmo_fsm_register(&trxcon_fsm_def);
-	trxcon_fsm = osmo_fsm_inst_alloc(&trxcon_fsm_def, tall_trxcon_ctx,
-		NULL, LOGL_DEBUG, "main");
+	/* Allocate a trxcon state machine */
+	trxcon_fsm = osmo_fsm_inst_alloc(&trxcon_fsm_def,
+		tall_trxcon_ctx, NULL, LOGL_DEBUG, "main");
+	if (trxcon_fsm == NULL)
+		goto exit;
 
 	/* Init L1CTL server */
 	app_data.l1l = l1ctl_link_init(tall_trxcon_ctx,
@@ -323,7 +258,8 @@ exit:
 	trx_if_close(app_data.trx);
 
 	/* Shutdown main state machine */
-	osmo_fsm_inst_free(trxcon_fsm);
+	if (trxcon_fsm != NULL)
+		osmo_fsm_inst_free(trxcon_fsm);
 
 	/* Deinitialize logging */
 	log_fini();

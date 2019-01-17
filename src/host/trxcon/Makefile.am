@@ -22,6 +22,7 @@ AM_CFLAGS = \
 bin_PROGRAMS = trxcon
 
 trxcon_SOURCES = \
+	trxcon_fsm.c \
 	l1ctl_link.c \
 	l1ctl.c \
 	trx_if.c \

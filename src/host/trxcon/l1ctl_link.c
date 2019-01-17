@@ -176,8 +176,8 @@ static int l1ctl_link_accept(struct osmo_fd *bfd, unsigned int flags)
 		return -1;
 	}
 
-	osmo_fsm_inst_dispatch(trxcon_fsm, L1CTL_EVENT_CONNECT, l1l);
 	osmo_fsm_inst_state_chg(l1l->fsm, L1CTL_STATE_CONNECTED, 0, 0);
+	osmo_fsm_inst_dispatch(trxcon_fsm, TRXCON_EV_L1CTL_CONNECT, NULL);
 
 	LOGP(DL1C, LOGL_NOTICE, "L1CTL has a new connection\n");
 
@@ -223,8 +223,8 @@ int l1ctl_link_close_conn(struct l1ctl_link *l1l)
 	/* Clear pending messages */
 	osmo_wqueue_clear(&l1l->wq);
 
-	osmo_fsm_inst_dispatch(trxcon_fsm, L1CTL_EVENT_DISCONNECT, l1l);
 	osmo_fsm_inst_state_chg(l1l->fsm, L1CTL_STATE_IDLE, 0, 0);
+	osmo_fsm_inst_dispatch(trxcon_fsm, TRXCON_EV_L1CTL_DISCONNECT, NULL);
 
 	return 0;
 }
