@@ -214,13 +214,13 @@ int main(int argc, char **argv)
 		goto exit;
 
 	/* Init L1CTL server */
-	app_data.l1l = l1ctl_link_init(tall_trxcon_ctx,
+	app_data.l1l = l1ctl_link_init(trxcon_fsm,
 		app_data.bind_socket);
 	if (app_data.l1l == NULL)
 		goto exit;
 
 	/* Init transceiver interface */
-	app_data.trx = trx_if_open(tall_trxcon_ctx,
+	app_data.trx = trx_if_open(trxcon_fsm,
 		app_data.trx_bind_ip, app_data.trx_remote_ip,
 		app_data.trx_base_port);
 	if (!app_data.trx)

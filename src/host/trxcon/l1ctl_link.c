@@ -177,7 +177,8 @@ static int l1ctl_link_accept(struct osmo_fd *bfd, unsigned int flags)
 	}
 
 	osmo_fsm_inst_state_chg(l1l->fsm, L1CTL_STATE_CONNECTED, 0, 0);
-	osmo_fsm_inst_dispatch(trxcon_fsm, TRXCON_EV_L1CTL_CONNECT, NULL);
+	osmo_fsm_inst_dispatch(l1l->fsm->proc.parent,
+		TRXCON_EV_L1CTL_CONNECT, NULL);
 
 	LOGP(DL1C, LOGL_NOTICE, "L1CTL has a new connection\n");
 
@@ -224,12 +225,14 @@ int l1ctl_link_close_conn(struct l1ctl_link *l1l)
 	osmo_wqueue_clear(&l1l->wq);
 
 	osmo_fsm_inst_state_chg(l1l->fsm, L1CTL_STATE_IDLE, 0, 0);
-	osmo_fsm_inst_dispatch(trxcon_fsm, TRXCON_EV_L1CTL_DISCONNECT, NULL);
+	osmo_fsm_inst_dispatch(l1l->fsm->proc.parent,
+		TRXCON_EV_L1CTL_DISCONNECT, NULL);
 
 	return 0;
 }
 
-struct l1ctl_link *l1ctl_link_init(void *tall_ctx, const char *sock_path)
+struct l1ctl_link *l1ctl_link_init(struct osmo_fsm_inst *parent_fi,
+	const char *sock_path)
 {
 	struct l1ctl_link *l1l;
 	struct osmo_fd *bfd;
@@ -237,15 +240,15 @@ struct l1ctl_link *l1ctl_link_init(void *tall_ctx, const char *sock_path)
 
 	LOGP(DL1C, LOGL_NOTICE, "Init L1CTL link (%s)\n", sock_path);
 
-	l1l = talloc_zero(tall_ctx, struct l1ctl_link);
+	l1l = talloc_zero(parent_fi, struct l1ctl_link);
 	if (!l1l) {
 		LOGP(DL1C, LOGL_ERROR, "Failed to allocate memory\n");
 		return NULL;
 	}
 
 	/* Allocate a new dedicated state machine */
-	l1l->fsm = osmo_fsm_inst_alloc(&l1ctl_fsm, l1l,
-		NULL, LOGL_DEBUG, "l1ctl_link");
+	l1l->fsm = osmo_fsm_inst_alloc_child(&l1ctl_fsm,
+		parent_fi, TRXCON_EV_L1CTL_DISCONNECT);
 	if (l1l->fsm == NULL) {
 		LOGP(DTRX, LOGL_ERROR, "Failed to allocate an instance "
 			"of FSM '%s'\n", l1ctl_fsm.name);

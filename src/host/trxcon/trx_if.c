@@ -173,7 +173,8 @@ static void trx_ctrl_timer_cb(void *data)
 	if (++tcm->retry_cnt > 3) {
 		LOGP(DTRX, LOGL_NOTICE, "Transceiver offline\n");
 		osmo_fsm_inst_state_chg(trx->fsm, TRX_STATE_OFFLINE, 0, 0);
-		osmo_fsm_inst_dispatch(trxcon_fsm, TRXCON_EV_TRX_DISCONNECT, NULL);
+		osmo_fsm_inst_dispatch(trx->fsm->proc.parent,
+			TRXCON_EV_TRX_DISCONNECT, NULL);
 		return;
 	}
 
@@ -514,7 +515,8 @@ static int trx_ctrl_read_cb(struct osmo_fd *ofd, unsigned int what)
 
 rsp_error:
 	/* Notify higher layers about the problem */
-	osmo_fsm_inst_dispatch(trxcon_fsm, TRXCON_EV_TRX_CTRL_ERROR, NULL);
+	osmo_fsm_inst_dispatch(trx->fsm->proc.parent,
+		TRXCON_EV_TRX_CTRL_ERROR, NULL);
 	return -EIO;
 }
 
@@ -627,7 +629,7 @@ int trx_if_tx_burst(struct trx_instance *trx, uint8_t tn, uint32_t fn,
 }
 
 /* Init TRX interface (TRXC, TRXD sockets and FSM) */
-struct trx_instance *trx_if_open(void *tall_ctx,
+struct trx_instance *trx_if_open(struct osmo_fsm_inst *parent_fi,
 	const char *local_host, const char *remote_host,
 	uint16_t base_port)
 {
@@ -638,15 +640,15 @@ struct trx_instance *trx_if_open(void *tall_ctx,
 		"(%s:%u)\n", remote_host, base_port);
 
 	/* Try to allocate memory */
-	trx = talloc_zero(tall_ctx, struct trx_instance);
+	trx = talloc_zero(parent_fi, struct trx_instance);
 	if (!trx) {
 		LOGP(DTRX, LOGL_ERROR, "Failed to allocate memory\n");
 		return NULL;
 	}
 
 	/* Allocate a new dedicated state machine */
-	trx->fsm = osmo_fsm_inst_alloc(&trx_fsm, trx,
-		NULL, LOGL_DEBUG, "trx_interface");
+	trx->fsm = osmo_fsm_inst_alloc_child(&trx_fsm,
+		parent_fi, TRXCON_EV_TRX_DISCONNECT);
 	if (trx->fsm == NULL) {
 		LOGP(DTRX, LOGL_ERROR, "Failed to allocate an instance "
 			"of FSM '%s'\n", trx_fsm.name);
