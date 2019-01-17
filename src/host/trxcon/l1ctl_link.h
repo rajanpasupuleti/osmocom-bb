@@ -30,9 +30,6 @@ struct l1ctl_link {
 	struct osmo_fd listen_bfd;
 	struct osmo_wqueue wq;
 
-	/* Bind TRX instance */
-	struct trx_instance *trx;
-
 	/* L1CTL handlers specific */
 	struct osmo_timer_list fbsb_timer;
 	uint8_t fbsb_conf_sent;

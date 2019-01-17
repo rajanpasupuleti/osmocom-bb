@@ -235,7 +235,6 @@ int main(int argc, char **argv)
 
 	/* Bind L1CTL with TRX and vice versa
 	 * TODO: get rid of this, they should be abstracted */
-	trxcon->l1l->trx = trxcon->trx;
 	trxcon->trx->l1l = trxcon->l1l;
 
 	/* Init scheduler */
