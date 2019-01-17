@@ -222,7 +222,8 @@ int l1ctl_tx_dt_ind(struct l1ctl_link *l1l, struct l1ctl_info_dl *data,
 	return l1ctl_link_send(l1l, msg);
 }
 
-int l1ctl_tx_rach_conf(struct l1ctl_link *l1l, uint32_t fn)
+int l1ctl_tx_rach_conf(struct l1ctl_link *l1l,
+	uint16_t band_arfcn, uint32_t fn)
 {
 	struct l1ctl_info_dl *dl;
 	struct msgb *msg;
@@ -236,7 +237,7 @@ int l1ctl_tx_rach_conf(struct l1ctl_link *l1l, uint32_t fn)
 	dl = (struct l1ctl_info_dl *) msgb_put(msg, len);
 
 	memset(dl, 0x00, len);
-	dl->band_arfcn = htons(l1l->trx->band_arfcn);
+	dl->band_arfcn = htons(band_arfcn);
 	dl->frame_nr = htonl(fn);
 
 	return l1ctl_link_send(l1l, msg);
