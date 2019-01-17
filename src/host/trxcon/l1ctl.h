@@ -3,11 +3,12 @@
 #include <stdint.h>
 #include <osmocom/core/msgb.h>
 
+#include "trxcon.h"
 #include "l1ctl_link.h"
 #include "l1ctl_proto.h"
 
 /* Event handlers */
-int l1ctl_rx_cb(struct l1ctl_link *l1l, struct msgb *msg);
+int l1ctl_rx_cb(struct trxcon_inst *trxcon, struct msgb *msg);
 void l1ctl_shutdown_cb(struct l1ctl_link *l1l);
 
 int l1ctl_tx_fbsb_conf(struct l1ctl_link *l1l, uint8_t result,

@@ -42,6 +42,7 @@
 #include "l1ctl_link.h"
 #include "l1ctl_proto.h"
 
+#include "trxcon.h"
 #include "trx_if.h"
 #include "sched_trx.h"
 
@@ -288,7 +289,7 @@ static enum gsm_phys_chan_config l1ctl_ccch_mode2pchan_config(enum ccch_mode mod
 /* FBSB expire timer */
 static void fbsb_timer_cb(void *data)
 {
-	struct l1ctl_link *l1l = (struct l1ctl_link *) data;
+	struct trxcon_inst *trxcon = (struct trxcon_inst *) data;
 	struct l1ctl_fbsb_conf *conf;
 	struct l1ctl_info_dl *dl;
 	struct msgb *msg;
@@ -306,7 +307,7 @@ static void fbsb_timer_cb(void *data)
 	memset(dl, 0x00, len);
 
 	/* Fill in current ARFCN */
-	dl->band_arfcn = htons(l1l->trx->band_arfcn);
+	dl->band_arfcn = htons(trxcon->trx->band_arfcn);
 
 	/* Fill in FBSB payload: BSIC and sync result */
 	conf = (struct l1ctl_fbsb_conf *) msgb_put(msg, sizeof(*conf));
@@ -314,12 +315,12 @@ static void fbsb_timer_cb(void *data)
 	conf->bsic = 0;
 
 	/* Ask SCH handler not to send L1CTL_FBSB_CONF anymore */
-	l1l->fbsb_conf_sent = 1;
+	trxcon->l1l->fbsb_conf_sent = 1;
 
-	l1ctl_link_send(l1l, msg);
+	l1ctl_link_send(trxcon->l1l, msg);
 }
 
-static int l1ctl_rx_fbsb_req(struct l1ctl_link *l1l, struct msgb *msg)
+static int l1ctl_rx_fbsb_req(struct trxcon_inst *trxcon, struct msgb *msg)
 {
 	enum gsm_phys_chan_config ch_config;
 	struct l1ctl_fbsb_req *fbsb;
@@ -344,38 +345,38 @@ static int l1ctl_rx_fbsb_req(struct l1ctl_link *l1l, struct msgb *msg)
 		band_arfcn &~ ARFCN_FLAG_MASK);
 
 	/* Reset scheduler and clock counter */
-	sched_trx_reset(l1l->trx, true);
+	sched_trx_reset(trxcon->trx, true);
 
 	/* Configure a single timeslot */
-	sched_trx_configure_ts(l1l->trx, 0, ch_config);
+	sched_trx_configure_ts(trxcon->trx, 0, ch_config);
 
 	/* Ask SCH handler to send L1CTL_FBSB_CONF */
-	l1l->fbsb_conf_sent = 0;
+	trxcon->l1l->fbsb_conf_sent = 0;
 
 	/* Only if current ARFCN differs */
-	if (l1l->trx->band_arfcn != band_arfcn) {
+	if (trxcon->trx->band_arfcn != band_arfcn) {
 		/* Update current ARFCN */
-		l1l->trx->band_arfcn = band_arfcn;
+		trxcon->trx->band_arfcn = band_arfcn;
 
 		/* Tune transceiver to required ARFCN */
-		trx_if_cmd_rxtune(l1l->trx, band_arfcn);
-		trx_if_cmd_txtune(l1l->trx, band_arfcn);
+		trx_if_cmd_rxtune(trxcon->trx, band_arfcn);
+		trx_if_cmd_txtune(trxcon->trx, band_arfcn);
 	}
 
-	trx_if_cmd_poweron(l1l->trx);
+	trx_if_cmd_poweron(trxcon->trx);
 
 	/* Start FBSB expire timer */
-	l1l->fbsb_timer.data = l1l;
-	l1l->fbsb_timer.cb = fbsb_timer_cb;
-	osmo_timer_schedule(&l1l->fbsb_timer, 0,
-		timeout * FRAME_DURATION_uS);
+	trxcon->l1l->fbsb_timer.data = trxcon;
+	trxcon->l1l->fbsb_timer.cb = fbsb_timer_cb;
+	osmo_timer_schedule(&trxcon->l1l->fbsb_timer,
+		0, timeout * FRAME_DURATION_uS);
 
 exit:
 	msgb_free(msg);
 	return rc;
 }
 
-static int l1ctl_rx_pm_req(struct l1ctl_link *l1l, struct msgb *msg)
+static int l1ctl_rx_pm_req(struct trxcon_inst *trxcon, struct msgb *msg)
 {
 	uint16_t band_arfcn_start, band_arfcn_stop;
 	struct l1ctl_pm_req *pmr;
@@ -399,14 +400,15 @@ static int l1ctl_rx_pm_req(struct l1ctl_link *l1l, struct msgb *msg)
 		band_arfcn_stop &~ ARFCN_FLAG_MASK);
 
 	/* Send measurement request to transceiver */
-	rc = trx_if_cmd_measure(l1l->trx, band_arfcn_start, band_arfcn_stop);
+	rc = trx_if_cmd_measure(trxcon->trx,
+		band_arfcn_start, band_arfcn_stop);
 
 exit:
 	msgb_free(msg);
 	return rc;
 }
 
-static int l1ctl_rx_reset_req(struct l1ctl_link *l1l, struct msgb *msg)
+static int l1ctl_rx_reset_req(struct trxcon_inst *trxcon, struct msgb *msg)
 {
 	struct l1ctl_reset *res;
 	int rc = 0;
@@ -425,12 +427,12 @@ static int l1ctl_rx_reset_req(struct l1ctl_link *l1l, struct msgb *msg)
 	switch (res->type) {
 	case L1CTL_RES_T_FULL:
 		/* TODO: implement trx_if_reset() */
-		trx_if_cmd_poweroff(l1l->trx);
-		trx_if_cmd_echo(l1l->trx);
+		trx_if_cmd_poweroff(trxcon->trx);
+		trx_if_cmd_echo(trxcon->trx);
 
 		/* Fall through */
 	case L1CTL_RES_T_SCHED:
-		sched_trx_reset(l1l->trx, true);
+		sched_trx_reset(trxcon->trx, true);
 		break;
 	default:
 		LOGP(DL1C, LOGL_ERROR, "Unknown L1CTL_RESET_REQ type\n");
@@ -438,14 +440,14 @@ static int l1ctl_rx_reset_req(struct l1ctl_link *l1l, struct msgb *msg)
 	}
 
 	/* Confirm */
-	rc = l1ctl_tx_reset_conf(l1l, res->type);
+	rc = l1ctl_tx_reset_conf(trxcon->l1l, res->type);
 
 exit:
 	msgb_free(msg);
 	return rc;
 }
 
-static int l1ctl_rx_echo_req(struct l1ctl_link *l1l, struct msgb *msg)
+static int l1ctl_rx_echo_req(struct trxcon_inst *trxcon, struct msgb *msg)
 {
 	struct l1ctl_hdr *l1h;
 
@@ -457,10 +459,10 @@ static int l1ctl_rx_echo_req(struct l1ctl_link *l1l, struct msgb *msg)
 	l1h->msg_type = L1CTL_ECHO_CONF;
 	msg->data = msg->l1h;
 
-	return l1ctl_link_send(l1l, msg);
+	return l1ctl_link_send(trxcon->l1l, msg);
 }
 
-static int l1ctl_rx_ccch_mode_req(struct l1ctl_link *l1l, struct msgb *msg)
+static int l1ctl_rx_ccch_mode_req(struct trxcon_inst *trxcon, struct msgb *msg)
 {
 	enum gsm_phys_chan_config ch_config;
 	struct l1ctl_ccch_mode_req *req;
@@ -479,7 +481,7 @@ static int l1ctl_rx_ccch_mode_req(struct l1ctl_link *l1l, struct msgb *msg)
 		req->ccch_mode); /* TODO: add value-string for ccch_mode */
 
 	/* Make sure that TS0 is allocated and configured */
-	ts = l1l->trx->ts_list[0];
+	ts = trxcon->trx->ts_list[0];
 	if (ts == NULL || ts->mf_layout == NULL) {
 		LOGP(DL1C, LOGL_ERROR, "TS0 is not configured");
 		rc = -EINVAL;
@@ -491,18 +493,18 @@ static int l1ctl_rx_ccch_mode_req(struct l1ctl_link *l1l, struct msgb *msg)
 
 	/* Do nothing if the current mode matches required */
 	if (ts->mf_layout->chan_config != ch_config)
-		rc = sched_trx_configure_ts(l1l->trx, 0, ch_config);
+		rc = sched_trx_configure_ts(trxcon->trx, 0, ch_config);
 
 	/* Confirm reconfiguration */
 	if (!rc)
-		rc = l1ctl_tx_ccch_mode_conf(l1l, req->ccch_mode);
+		rc = l1ctl_tx_ccch_mode_conf(trxcon->l1l, req->ccch_mode);
 
 exit:
 	msgb_free(msg);
 	return rc;
 }
 
-static int l1ctl_rx_rach_req(struct l1ctl_link *l1l, struct msgb *msg)
+static int l1ctl_rx_rach_req(struct trxcon_inst *trxcon, struct msgb *msg)
 {
 	struct l1ctl_rach_req *req;
 	struct l1ctl_info_ul *ul;
@@ -529,7 +531,7 @@ static int l1ctl_rx_rach_req(struct l1ctl_link *l1l, struct msgb *msg)
 		"(offset=%u ra=0x%02x)\n", req->offset, req->ra);
 
 	/* Init a new primitive */
-	rc = sched_prim_init(l1l->trx, &prim, len, chan_nr, link_id);
+	rc = sched_prim_init(trxcon->trx, &prim, len, chan_nr, link_id);
 	if (rc)
 		goto exit;
 
@@ -539,7 +541,7 @@ static int l1ctl_rx_rach_req(struct l1ctl_link *l1l, struct msgb *msg)
 	 * FIXME: what if requested TS is not configured?
 	 * Or what if one (such as TCH) has no TRXC_RACH slots?
 	 */
-	rc = sched_prim_push(l1l->trx, prim, chan_nr);
+	rc = sched_prim_push(trxcon->trx, prim, chan_nr);
 	if (rc) {
 		talloc_free(prim);
 		goto exit;
@@ -553,7 +555,7 @@ exit:
 	return rc;
 }
 
-static int l1ctl_proc_est_req_h0(struct trx_instance *trx, struct l1ctl_h0 *h)
+static int l1ctl_proc_est_req_h0(struct trxcon_inst *trxcon, struct l1ctl_h0 *h)
 {
 	uint16_t band_arfcn;
 	int rc = 0;
@@ -564,22 +566,22 @@ static int l1ctl_proc_est_req_h0(struct trx_instance *trx, struct l1ctl_h0 *h)
 		"ARFCN=%u channel\n", band_arfcn &~ ARFCN_FLAG_MASK);
 
 	/* Do we need to retune? */
-	if (trx->band_arfcn == band_arfcn)
+	if (trxcon->trx->band_arfcn == band_arfcn)
 		return 0;
 
 	/* Tune transceiver to required ARFCN */
-	rc |= trx_if_cmd_rxtune(trx, band_arfcn);
-	rc |= trx_if_cmd_txtune(trx, band_arfcn);
+	rc |= trx_if_cmd_rxtune(trxcon->trx, band_arfcn);
+	rc |= trx_if_cmd_txtune(trxcon->trx, band_arfcn);
 	if (rc)
 		return rc;
 
 	/* Update current ARFCN */
-	trx->band_arfcn = band_arfcn;
+	trxcon->trx->band_arfcn = band_arfcn;
 
 	return 0;
 }
 
-static int l1ctl_proc_est_req_h1(struct trx_instance *trx, struct l1ctl_h1 *h)
+static int l1ctl_proc_est_req_h1(struct trxcon_inst *trxcon, struct l1ctl_h1 *h)
 {
 	int rc;
 
@@ -594,7 +596,7 @@ static int l1ctl_proc_est_req_h1(struct trx_instance *trx, struct l1ctl_h1 *h)
 	}
 
 	/* Forward hopping parameters to TRX */
-	rc = trx_if_cmd_setfh(trx, h->hsn, h->maio, h->ma, h->n);
+	rc = trx_if_cmd_setfh(trxcon->trx, h->hsn, h->maio, h->ma, h->n);
 	if (rc)
 		return rc;
 
@@ -605,7 +607,7 @@ static int l1ctl_proc_est_req_h1(struct trx_instance *trx, struct l1ctl_h1 *h)
 	return 0;
 }
 
-static int l1ctl_rx_dm_est_req(struct l1ctl_link *l1l, struct msgb *msg)
+static int l1ctl_rx_dm_est_req(struct trxcon_inst *trxcon, struct msgb *msg)
 {
 	enum gsm_phys_chan_config config;
 	struct l1ctl_dm_est_req *est_req;
@@ -626,14 +628,14 @@ static int l1ctl_rx_dm_est_req(struct l1ctl_link *l1l, struct msgb *msg)
 
 	/* Frequency hopping? */
 	if (est_req->h)
-		rc = l1ctl_proc_est_req_h1(l1l->trx, &est_req->h1);
+		rc = l1ctl_proc_est_req_h1(trxcon, &est_req->h1);
 	else /* Single ARFCN */
-		rc = l1ctl_proc_est_req_h0(l1l->trx, &est_req->h0);
+		rc = l1ctl_proc_est_req_h0(trxcon, &est_req->h0);
 	if (rc)
 		goto exit;
 
 	/* Update TSC (Training Sequence Code) */
-	l1l->trx->tsc = est_req->tsc;
+	trxcon->trx->tsc = est_req->tsc;
 
 	/* Determine channel config */
 	config = sched_trx_chan_nr2pchan_config(chan_nr);
@@ -644,8 +646,8 @@ static int l1ctl_rx_dm_est_req(struct l1ctl_link *l1l, struct msgb *msg)
 	}
 
 	/* Configure requested TS */
-	rc = sched_trx_configure_ts(l1l->trx, tn, config);
-	ts = l1l->trx->ts_list[tn];
+	rc = sched_trx_configure_ts(trxcon->trx, tn, config);
+	ts = trxcon->trx->ts_list[tn];
 	if (rc) {
 		rc = -EINVAL;
 		goto exit;
@@ -667,13 +669,13 @@ exit:
 	return rc;
 }
 
-static int l1ctl_rx_dm_rel_req(struct l1ctl_link *l1l, struct msgb *msg)
+static int l1ctl_rx_dm_rel_req(struct trxcon_inst *trxcon, struct msgb *msg)
 {
 	LOGP(DL1C, LOGL_NOTICE, "Received L1CTL_DM_REL_REQ, "
 		"switching back to CCCH\n");
 
 	/* Reset scheduler */
-	sched_trx_reset(l1l->trx, false);
+	sched_trx_reset(trxcon->trx, false);
 
 	msgb_free(msg);
 	return 0;
@@ -682,7 +684,7 @@ static int l1ctl_rx_dm_rel_req(struct l1ctl_link *l1l, struct msgb *msg)
 /**
  * Handles both L1CTL_DATA_REQ and L1CTL_TRAFFIC_REQ.
  */
-static int l1ctl_rx_dt_req(struct l1ctl_link *l1l,
+static int l1ctl_rx_dt_req(struct trxcon_inst *trxcon,
 	struct msgb *msg, bool traffic)
 {
 	struct l1ctl_info_ul *ul;
@@ -707,13 +709,13 @@ static int l1ctl_rx_dt_req(struct l1ctl_link *l1l,
 		chan_nr, link_id, payload_len);
 
 	/* Init a new primitive */
-	rc = sched_prim_init(l1l->trx, &prim, payload_len,
+	rc = sched_prim_init(trxcon->trx, &prim, payload_len,
 		chan_nr, link_id);
 	if (rc)
 		goto exit;
 
 	/* Push this primitive to transmit queue */
-	rc = sched_prim_push(l1l->trx, prim, chan_nr);
+	rc = sched_prim_push(trxcon->trx, prim, chan_nr);
 	if (rc) {
 		talloc_free(prim);
 		goto exit;
@@ -727,7 +729,7 @@ exit:
 	return rc;
 }
 
-static int l1ctl_rx_param_req(struct l1ctl_link *l1l, struct msgb *msg)
+static int l1ctl_rx_param_req(struct trxcon_inst *trxcon, struct msgb *msg)
 {
 	struct l1ctl_par_req *par_req;
 	struct l1ctl_info_ul *ul;
@@ -739,18 +741,18 @@ static int l1ctl_rx_param_req(struct l1ctl_link *l1l, struct msgb *msg)
 		"(ta=%d, tx_power=%u)\n", par_req->ta, par_req->tx_power);
 
 	/* Instruct TRX to use new TA value */
-	if (l1l->trx->ta != par_req->ta) {
-		trx_if_cmd_setta(l1l->trx, par_req->ta);
-		l1l->trx->ta = par_req->ta;
+	if (trxcon->trx->ta != par_req->ta) {
+		trx_if_cmd_setta(trxcon->trx, par_req->ta);
+		trxcon->trx->ta = par_req->ta;
 	}
 
-	l1l->trx->tx_power = par_req->tx_power;
+	trxcon->trx->tx_power = par_req->tx_power;
 
 	msgb_free(msg);
 	return 0;
 }
 
-static int l1ctl_rx_tch_mode_req(struct l1ctl_link *l1l, struct msgb *msg)
+static int l1ctl_rx_tch_mode_req(struct trxcon_inst *trxcon, struct msgb *msg)
 {
 	struct l1ctl_tch_mode_req *req;
 	struct trx_lchan_state *lchan;
@@ -765,7 +767,7 @@ static int l1ctl_rx_tch_mode_req(struct l1ctl_link *l1l, struct msgb *msg)
 	/* Iterate over timeslot list */
 	for (i = 0; i < TRX_TS_COUNT; i++) {
 		/* Timeslot is not allocated */
-		ts = l1l->trx->ts_list[i];
+		ts = trxcon->trx->ts_list[i];
 		if (ts == NULL)
 			continue;
 
@@ -790,7 +792,7 @@ static int l1ctl_rx_tch_mode_req(struct l1ctl_link *l1l, struct msgb *msg)
 	return 0;
 }
 
-static int l1ctl_rx_crypto_req(struct l1ctl_link *l1l, struct msgb *msg)
+static int l1ctl_rx_crypto_req(struct trxcon_inst *trxcon, struct msgb *msg)
 {
 	struct l1ctl_crypto_req *req;
 	struct l1ctl_info_ul *ul;
@@ -808,7 +810,7 @@ static int l1ctl_rx_crypto_req(struct l1ctl_link *l1l, struct msgb *msg)
 	tn = ul->chan_nr & 0x7;
 
 	/* Make sure that required TS is allocated and configured */
-	ts = l1l->trx->ts_list[tn];
+	ts = trxcon->trx->ts_list[tn];
 	if (ts == NULL || ts->mf_layout == NULL) {
 		LOGP(DL1C, LOGL_ERROR, "TS %u is not configured\n", tn);
 		rc = -EINVAL;
@@ -828,7 +830,7 @@ exit:
 	return rc;
 }
 
-int l1ctl_rx_cb(struct l1ctl_link *l1l, struct msgb *msg)
+int l1ctl_rx_cb(struct trxcon_inst *trxcon, struct msgb *msg)
 {
 	struct l1ctl_hdr *l1h;
 
@@ -837,31 +839,31 @@ int l1ctl_rx_cb(struct l1ctl_link *l1l, struct msgb *msg)
 
 	switch (l1h->msg_type) {
 	case L1CTL_FBSB_REQ:
-		return l1ctl_rx_fbsb_req(l1l, msg);
+		return l1ctl_rx_fbsb_req(trxcon, msg);
 	case L1CTL_PM_REQ:
-		return l1ctl_rx_pm_req(l1l, msg);
+		return l1ctl_rx_pm_req(trxcon, msg);
 	case L1CTL_RESET_REQ:
-		return l1ctl_rx_reset_req(l1l, msg);
+		return l1ctl_rx_reset_req(trxcon, msg);
 	case L1CTL_ECHO_REQ:
-		return l1ctl_rx_echo_req(l1l, msg);
+		return l1ctl_rx_echo_req(trxcon, msg);
 	case L1CTL_CCCH_MODE_REQ:
-		return l1ctl_rx_ccch_mode_req(l1l, msg);
+		return l1ctl_rx_ccch_mode_req(trxcon, msg);
 	case L1CTL_RACH_REQ:
-		return l1ctl_rx_rach_req(l1l, msg);
+		return l1ctl_rx_rach_req(trxcon, msg);
 	case L1CTL_DM_EST_REQ:
-		return l1ctl_rx_dm_est_req(l1l, msg);
+		return l1ctl_rx_dm_est_req(trxcon, msg);
 	case L1CTL_DM_REL_REQ:
-		return l1ctl_rx_dm_rel_req(l1l, msg);
+		return l1ctl_rx_dm_rel_req(trxcon, msg);
 	case L1CTL_DATA_REQ:
-		return l1ctl_rx_dt_req(l1l, msg, false);
+		return l1ctl_rx_dt_req(trxcon, msg, false);
 	case L1CTL_TRAFFIC_REQ:
-		return l1ctl_rx_dt_req(l1l, msg, true);
+		return l1ctl_rx_dt_req(trxcon, msg, true);
 	case L1CTL_PARAM_REQ:
-		return l1ctl_rx_param_req(l1l, msg);
+		return l1ctl_rx_param_req(trxcon, msg);
 	case L1CTL_TCH_MODE_REQ:
-		return l1ctl_rx_tch_mode_req(l1l, msg);
+		return l1ctl_rx_tch_mode_req(trxcon, msg);
 	case L1CTL_CRYPTO_REQ:
-		return l1ctl_rx_crypto_req(l1l, msg);
+		return l1ctl_rx_crypto_req(trxcon, msg);
 
 	/* Not (yet) handled messages */
 	case L1CTL_NEIGH_PM_REQ:

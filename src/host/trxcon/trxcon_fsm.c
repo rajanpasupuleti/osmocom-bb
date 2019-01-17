@@ -58,7 +58,7 @@ static void trxcon_fsm_managed_action(struct osmo_fsm_inst *fi,
 		break;
 	case TRXCON_EV_L1CTL_REQ:
 		OSMO_ASSERT(data != NULL);
-		l1ctl_rx_cb(trxcon->l1l, (struct msgb *) data);
+		l1ctl_rx_cb(trxcon, (struct msgb *) data);
 		break;
 	default:
 		LOGPFSML(fi, LOGL_ERROR, "Unhandled event '%s'\n",
