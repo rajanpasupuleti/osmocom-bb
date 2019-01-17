@@ -6,7 +6,6 @@
 #define GEN_MASK(state) (0x01 << state)
 
 extern const struct value_string trxcon_fsm_event_names[];
-extern struct osmo_fsm_inst *trxcon_fsm;
 extern struct osmo_fsm trxcon_fsm_def;
 
 enum trxcon_fsm_state_type {

@@ -75,7 +75,6 @@ static struct {
 } app_data;
 
 static void *tall_trxcon_ctx = NULL;
-struct osmo_fsm_inst *trxcon_fsm;
 
 static void print_usage(const char *app)
 {
@@ -185,6 +184,7 @@ static void signal_handler(int signal)
 
 int main(int argc, char **argv)
 {
+	struct osmo_fsm_inst *trxcon_fsm;
 	int rc = 0;
 
 	printf("%s", COPYRIGHT);
