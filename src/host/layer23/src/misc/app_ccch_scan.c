@@ -169,6 +169,7 @@ static void dump_bcch(struct osmocom_ms *ms, uint8_t tc, const uint8_t *data)
 	struct gsm48_system_information_type_header *si_hdr;
 	si_hdr = (struct gsm48_system_information_type_header *) data;
 	uint8_t si_type = si_hdr->system_information;
+	struct gsm48_system_information_type_1 *si1;
 
 	LOGP(DRR, LOGL_INFO, "BCCH message (type=0x%02x): %s\n",
 		si_type, gsm48_rr_msg_name(si_type));
@@ -178,6 +179,18 @@ static void dump_bcch(struct osmocom_ms *ms, uint8_t tc, const uint8_t *data)
 
 	/* GSM 05.02 §6.3.1.3 Mapping of BCCH data */
 	switch (si_type) {
+	case GSM48_MT_RR_SYSINFO_1:
+		if (app_state.has_si1)
+			break;
+
+		si1 = (struct gsm48_system_information_type_1 *) data;
+		gsm48_decode_freq_list(app_state.cell_arfcns,
+				       si1->cell_channel_description,
+				       sizeof(si1->cell_channel_description),
+				       0xff, 0x01);
+		app_state.has_si1 = 1;
+		LOGP(DRR, LOGL_ERROR, "SI1 received.\n");
+		break;
 	case GSM48_MT_RR_SYSINFO_3:
 		handle_si3(ms,
 			(struct gsm48_system_information_type_3 *) data);
@@ -537,7 +550,6 @@ int gsm48_rx_bcch(struct msgb *msg, struct osmocom_ms *ms)
 static void
 local_burst_decode(struct l1ctl_burst_ind *bi)
 {
-	int16_t rx_dbm;
 	uint16_t arfcn;
 	uint32_t fn;
 	uint8_t cbits, tn, lch_idx;
@@ -547,7 +559,6 @@ local_burst_decode(struct l1ctl_burst_ind *bi)
 
 	/* Get params (Only for SDCCH and SACCH/{4,8,F,H}) */
 	arfcn  = ntohs(bi->band_arfcn);
-	rx_dbm = rxlev2dbm(bi->rx_level);
 
 	fn     = ntohl(bi->frame_nr);
 	ul     = !!(arfcn & ARFCN_UPLINK);
@@ -737,6 +748,7 @@ void layer3_app_reset(void)
 	app_state.dch_state = DCH_NONE;
 	app_state.dch_badcnt = 0;
 	app_state.dch_ciph = 0;
+	app_state.has_si1 = 0;
 
 	if (app_state.fh)
 		fclose(app_state.fh);

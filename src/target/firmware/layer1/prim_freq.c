@@ -49,7 +49,7 @@
 
 #include <l1ctl_proto.h>
 
-struct {
+static struct {
 	uint32_t fn;
 	uint16_t band_arfcn;
 } last_rach;

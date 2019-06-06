@@ -246,12 +246,10 @@ int serial_up_to_eleven(void)
 	if (rv == 0)
 		return 0;
 
-#ifdef I_HAVE_A_CP210x /* and I know what I'm doing, I swear ! */
 	/* Try closest standard baudrate (CP210x reprogrammed adapters) */
 	rv = osmo_serial_set_baudrate(dnload.serial_fd.fd, B460800);
 	if (rv == 0)
 		return 0;
-#endif
 
 	/* Everything failed */
 	fprintf(stderr, "!!!\n");
