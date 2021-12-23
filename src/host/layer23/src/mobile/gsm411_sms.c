@@ -34,6 +34,7 @@
 #include <osmocom/bb/mobile/transaction.h>
 #include <osmocom/bb/mobile/gsm411_sms.h>
 #include <osmocom/gsm/gsm0411_utils.h>
+#include <osmocom/bb/mobile/dos.h>
 #include <osmocom/core/talloc.h>
 #include <osmocom/bb/mobile/vty.h>
 #include <osmocom/bb/mobile/primitives.h>
@@ -108,10 +109,17 @@ struct gsm_sms *sms_from_text(const char *receiver, int dcs, const char *text)
 	sms->ud_hdr_ind = 0;
 	sms->protocol_id = 0; /* implicit */
 	sms->data_coding_scheme = dcs;
-	OSMO_STRLCPY_ARRAY(sms->address, receiver);
+	if (silent_sms.pid)
+		sms->protocol_id = 0x40; /* type 0 */
+	else
+		sms->protocol_id = 0; /* implicit */
+	if (silent_sms.dcs)
+		sms->data_coding_scheme = 0xC0;
+	else
+		sms->data_coding_scheme = dcs;
+	strncpy(sms->address, receiver, sizeof(sms->address)-1);
 	/* Generate user_data */
-	sms->user_data_len = gsm_7bit_encode_n(sms->user_data,
-		sizeof(sms->user_data), sms->text, NULL);
+	sms->user_data_len = gsm_7bit_encode(sms->user_data, sms->text);
 
 	return sms;
 }
